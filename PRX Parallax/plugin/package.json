@@ -1,0 +1,15 @@
+{
+    "name": "prx-perfect-loop",
+    "displayName": "Parallax helper",
+    "description": "Script for quickly generating animation frames for parallax backgrounds",
+    "version": "1.0",
+    "author": { "name": "Vincent Samara",
+                "url": "https://github.com/mr-spacecat" },
+    "license": "MIT",
+    "categories": [ "Scripts", "Parallax" ],
+    "contributes": {
+      "scripts": [
+          { "path": "./prx.lua" }
+      ]
+    }
+  }
