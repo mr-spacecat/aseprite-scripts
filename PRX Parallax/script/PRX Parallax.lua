@@ -1,9 +1,12 @@
 -- Script
--- TODO: code comments
 -- TODO: help dialog
 -- TODO: help on markdown with examples
+-- TODO: reset to initial pos on scroll
+-- TODO: multi-line factor suggestion to prevent out of bounds
 function ParallaxGenerator()
     -- Section: factor suggestion
+    -- Suggests optimal parallax shift values
+    -- based on the entered number of frames 
     function GetFrameFactors(frames)
         local factors = {}
         for i = 1, frames do
@@ -15,6 +18,7 @@ function ParallaxGenerator()
     end
 
     -- Section: layer fetcher
+    -- Gets all image layers, including nested ones
     function RecursiveGetLayers(list, input, layertype)
         for i, layer in ipairs(input) do
             if layer.layers ~= nil then
@@ -27,34 +31,44 @@ function ParallaxGenerator()
     -- End layer fetcher
 
     -- Section: scroll function
-    function ParallaxScroll(movement)
+    function ParallaxScroll(movement, data)
+        -- Temporarily removed reset to intial position
+        -- because direction was implpemented and
+        -- cases where initial position is not 0, y  or x, 0 were not covered anyway
+        local direction = data["direction"]:lower()
         local cel = app.activecel
         local bounds = cel.bounds
-        -- For a perfect loop, initial image of each layer MUST
-        -- be exactly the canvas size on x axis
-        -- be aligned to the left canvas border i.e. starting x position is 0
-        -- parallax value for the layer must be a factor of the canvas size
-        if math.abs(bounds.x) >= sprite.width then
-            -- Reset position
-            cel.position = {-movement, cel.position.y}
-        else
-            -- Move image
-            cel.position = {cel.position.x - movement, cel.position.y}
+
+        -- Execute move
+        local x, y
+        if direction == "left" then
+            x, y = cel.position.x - movement, cel.position.y
+        elseif direction == "right" then
+            x, y = cel.position.x + movement, cel.position.y
+        elseif direction == "up" then
+            x, y = cel.position.x, cel.position.y - movement
+        elseif direction == "down" then
+            x, y = cel.position.x, cel.position.y + movement
         end
+        cel.position = {x, y}
+        -- end
     end
     -- End scroll function
 
     -- Section: wrap function
-    function ParallaxWrap(movement)
+    function ParallaxWrap(movement, data)
+        -- Activate the correct cel and layer
         local cel = app.activecel
         local bounds = sprite.bounds:union(Rectangle(cel.bounds))
         app.activeLayer = cel.layer
         sprite.selection = Selection(bounds)
+
+        -- Execute move
         app.command.MoveMask {
-            target = 'content',
+            target = "content",
             wrap = true,
-            direction = 'left',
-            units = 'pixel',
+            direction = data["direction"]:lower(),
+            units = "pixel",
             quantity = movement
         }
         app.command.DeselectMask()
@@ -66,7 +80,7 @@ function ParallaxGenerator()
         local frames = sprite.frames
         local modifyprx = false
 
-        -- Always append new frames or overwrite cels depending on switch in dialog
+        -- Append new frames or overwrite cels depending on switch in dialog
         if data["isappend"] then
             sprite:newFrame(#frames)
             app.activeframe = #frames
@@ -94,9 +108,9 @@ function ParallaxGenerator()
                 end
                 -- Select parallax function
                 if data["scroll"] then
-                    ParallaxScroll(prxvalue)
+                    ParallaxScroll(prxvalue, data)
                 else
-                    ParallaxWrap(prxvalue)
+                    ParallaxWrap(prxvalue, data)
                 end
             end
         end
@@ -107,6 +121,7 @@ function ParallaxGenerator()
     function CopyLoop(data, iterator)
         for i, layer in ipairs(loopingLayers) do
             local looplength = data[layer.name]
+            -- Start copying only after the last animation frame
             if looplength ~= 0 and looplength ~= nil and iterator > looplength then
                 local source = layer:cel(iterator - looplength)
                 local target = layer:cel(iterator)
@@ -125,6 +140,7 @@ function ParallaxGenerator()
     function GenerateAll(data)
         local framestogenerate = data["frame-quantity"]
         local iterator
+        -- A crutch to avoid missing 1 frame if isappend
         if data["isappend"] then
             iterator = 1
         else
@@ -172,10 +188,11 @@ function ParallaxGenerator()
             local frames = data["frame-quantity"]
             local isvisible = true
             local stringbuilder = "1"
+            -- Hide helper just for prettiness if frame number is invalid
             if frames == 0 or frames == nil then
                 isvisible = false
             elseif frames > 9999999 then
-                -- Prevent accidental freezing
+                -- Prevent accidental freezing due to factorization of large numbers
                 stringbuilder = "Too many frames to factorize"
             else
                 -- Factorize
@@ -189,7 +206,6 @@ function ParallaxGenerator()
                 text = stringbuilder,
                 visible = isvisible
             }
-
         end
     }:label{
         id = "factors",
@@ -199,14 +215,14 @@ function ParallaxGenerator()
     }:separator{}
     -- Generation methods
     dlg:radio{
-        id = "scroll",
+        id = "wrap",
         label = "Generation method",
-        text = "Scroll",
-        selected = false
-    }:radio{
-        id = "replace",
-        text = "Wrap (Experimental)",
+        text = "Wrap",
         selected = true
+    }:radio{
+        id = "scroll",
+        text = "Scroll (Experimental)",
+        selected = false
     }
     dlg:check{
         id = "isappend",
@@ -218,8 +234,9 @@ function ParallaxGenerator()
     RecursiveGetLayers(parallaxLayers, sprite.layers, "PRX")
     dlg:separator{
         id = "layer-prx",
-        text = "Parallax movement values"
+        text = "Parallax"
     }
+    -- Show section only if there are PRX-marked layers
     if next(parallaxLayers) ~= nil then
         dlg:check{
             id = "doprx",
@@ -227,19 +244,32 @@ function ParallaxGenerator()
             selected = true,
             onclick = function()
                 local data = dlg.data
+                dlg:modify{
+                    id = "direction",
+                    visible = data["doprx"]
+                }
                 for i, layer in ipairs(parallaxLayers) do
                     dlg:modify{
+                        -- Hide layers in dialog if PRX generation disabled
+                        -- Can be useful if too many PRX+LOOP layers make dialog go out of screen bounds
                         id = layer.name,
                         visible = data["doprx"]
                     }
                 end
             end
+        }:combobox{
+            id = "direction",
+            label = "Movement direction",
+            option = "Left",
+            options = {"Left", "Right", "Down", "Up"}
         }
         for i, layer in ipairs(parallaxLayers) do
+            -- Get default parallax speed from layer name
             local _, startingvalue = string.match(layer.name, "(PRX%-)(%d+)")
             if startingvalue == nil then
                 startingvalue = "0"
             end
+            -- Generate field for each layer
             dlg:number{
                 id = layer.name,
                 label = layer.name,
@@ -257,17 +287,20 @@ function ParallaxGenerator()
     RecursiveGetLayers(loopingLayers, sprite.layers, "LOOP")
     dlg:separator{
         id = "layer-loop",
-        text = "Looping layer loop length"
+        text = "Static loops"
     }
+    -- Show section only if there are LOOP-marked layers
     if next(loopingLayers) ~= nil then
         dlg:check{
             id = "doloop",
-            label = "Generate looping frames",
+            label = "Generate loop frames",
             selected = true,
             onclick = function()
                 local data = dlg.data
                 for i, layer in ipairs(loopingLayers) do
                     dlg:modify{
+                        -- Hide layers in dialog if LOOP generation disabled
+                        -- Can be useful if too many PRX+LOOP layers make dialog go out of screen bounds
                         id = layer.name,
                         visible = data["doloop"]
                     }
@@ -275,10 +308,12 @@ function ParallaxGenerator()
             end
         }
         for i, layer in ipairs(loopingLayers) do
+            -- Get default loop length from layer name
             local _, startingvalue = string.match(layer.name, "(LOOP%-)(%d+)")
             if startingvalue == nil then
                 startingvalue = "0"
             end
+            -- Generate field for each layer
             dlg:number{
                 id = layer.name,
                 label = layer.name,
@@ -288,7 +323,7 @@ function ParallaxGenerator()
         end
     else
         dlg:label{
-            label = "No layers marked as looping."
+            label = "No layers marked as loops."
         }
     end
     -- Bottom buttons
