@@ -9,7 +9,7 @@
     "categories": [ "Scripts", "Parallax" ],
     "contributes": {
       "scripts": [
-          { "path": "./prx.lua" }
+          { "path": "./PRX Parallax.lua" }
       ]
     }
   }
