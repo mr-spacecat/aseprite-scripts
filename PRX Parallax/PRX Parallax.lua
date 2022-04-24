@@ -1,9 +1,17 @@
--- Script
 -- TODO: help dialog
 -- TODO: help on markdown with examples
 -- TODO: reset to initial pos on scroll
--- TODO: multi-line factor suggestion to prevent out of bounds
+-- TODO: decimal PRX values??
+
+-- Script
 function ParallaxGenerator()
+    -- Exit if no active sprite
+    sprite = app.activeSprite
+    if not sprite then
+        app.alert("No sprite is loaded!")
+        return
+    end
+    
     -- Section: factor suggestion
     -- Suggests optimal parallax shift values
     -- based on the entered number of frames 
@@ -38,7 +46,11 @@ function ParallaxGenerator()
         local direction = data["direction"]:lower()
         local cel = app.activecel
         local bounds = cel.bounds
-
+        -- Idea: working on new frame with cel copied from the previous one
+        -- or cel in initial position
+        -- if cel edge = canvas edge i.e. the cell would shift to emptiness this movement
+        -- we reset the cell position to initial instead. 
+        -- Get initial position from cell index = this cell - framestogenerate/prxvalue
         -- Execute move
         local x, y
         if direction == "left" then
@@ -136,7 +148,6 @@ function ParallaxGenerator()
     -- End copy loop
 
     -- Section: MAIN
-    sprite = app.activeSprite
     function GenerateAll(data)
         local framestogenerate = data["frame-quantity"]
         local iterator
@@ -345,3 +356,4 @@ function ParallaxGenerator()
 end
 
 ParallaxGenerator()
+
