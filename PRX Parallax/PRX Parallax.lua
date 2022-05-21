@@ -1,8 +1,8 @@
 -- TODO: help dialog
 -- TODO: help on markdown with examples
 -- TODO: reset to initial pos on scroll
--- TODO: decimal PRX values??
-
+-- TODO: prx wrap cant activate proper cel/frame/whatever
+-- TODO: prx value multipler return it back  
 -- Script
 function ParallaxGenerator()
     -- Exit if no active sprite
@@ -11,7 +11,7 @@ function ParallaxGenerator()
         app.alert("No sprite is loaded!")
         return
     end
-    
+
     -- Section: factor suggestion
     -- Suggests optimal parallax shift values
     -- based on the entered number of frames 
@@ -69,15 +69,12 @@ function ParallaxGenerator()
 
     -- Section: wrap function
     function ParallaxWrap(movement, data)
-        -- Activate the correct cel and layer
-        local cel = app.activecel
-        local bounds = sprite.bounds:union(Rectangle(cel.bounds))
-        app.activeLayer = cel.layer
+        local bounds = sprite.bounds:union(Rectangle(app.activeCel.bounds))
         sprite.selection = Selection(bounds)
 
         -- Execute move
         app.command.MoveMask {
-            target = "content",
+            targetCel = "content",
             wrap = true,
             direction = data["direction"]:lower(),
             units = "pixel",
@@ -87,99 +84,114 @@ function ParallaxGenerator()
     end
     -- End wrap function
 
-    -- Section: generate frame
-    function GenerateFrame(data, iterator)
-        local frames = sprite.frames
-        local modifyprx = false
-
-        -- Append new frames or overwrite cels depending on switch in dialog
-        if data["isappend"] then
-            sprite:newFrame(#frames)
-            app.activeframe = #frames
-        else
-            if frames[iterator] == nil then
-                sprite:newFrame(#frames)
-                app.activeframe = #frames
-            else
-                app.activeframe = iterator
-                -- Remember that we need to adjust how far 
-                -- to move the content if the frame exists
-                modifyprx = true
-            end
-        end
-
-        -- Work only on cels of parallax-enabled layers
+    -- Section: parallax shift
+    function ProcessParallaxLayers(data, iterator, didFrameExist)
         for i, layer in ipairs(parallaxLayers) do
+            -- Get shift amount from dialog field
             local prxvalue = data[layer.name]
+
             if prxvalue ~= 0 and prxvalue ~= nil then
-                app.activecel = layer:cel(app.activeframe)
-                if modifyprx then
-                    -- Adjust parallax value multiplier if frame exists
-                    -- because we can't rely on copying position from previous frame  
+                -- Activate correct cel and layer
+                app.activeCel = layer:cel(app.activeFrame)
+                app.activeLayer = layer
+
+                -- Adjust parallax value multiplier if frame exists
+                -- because we can't rely on copying position from previous frame  
+                if didFrameExist then
                     prxvalue = prxvalue * (iterator - 1)
                 end
+
                 -- Select parallax function
                 if data["scroll"] then
-                    ParallaxScroll(prxvalue, data)
+                    -- Parallax scroll disabled until loop within is implemented
+                    -- ParallaxScroll(prxvalue, data)
                 else
                     ParallaxWrap(prxvalue, data)
                 end
             end
         end
     end
-    -- End generate frame
+    -- End parallax shift
 
     -- Section: copy loop
-    function CopyLoop(data, iterator)
+    function ProcessLoopingLayers(data, iterator)
+
         for i, layer in ipairs(loopingLayers) do
+            -- Get loop length from dialog field
             local looplength = data[layer.name]
-            -- Start copying only after the last animation frame
-            if looplength ~= 0 and looplength ~= nil and iterator > looplength then
-                local source = layer:cel(iterator - looplength)
-                local target = layer:cel(iterator)
-                -- Check for image equality before copying
-                -- Is it more performant than simply replacing though?
-                if target.image ~= source.image then
-                    target.image = source.image
-                end
+
+            local r = iterator % looplength
+            if r == 0 then
+                r = looplength
+            end
+
+            -- Get source cel
+            local sourceCel = layer:cel(r)
+            local targetCel = layer:cel(iterator)
+            if targetCel == nil then
+                targetCel = sprite:newCel(layer, iterator)
+            end
+            if targetCel.image ~= sourceCel.image then
+                targetCel.image = sourceCel.image
+                targetCel.position = sourceCel.position
             end
         end
     end
     -- End copy loop
 
-    -- Section: MAIN
-    function GenerateAll(data)
-        local framestogenerate = data["frame-quantity"]
-        local iterator
-        -- A crutch to avoid missing 1 frame if isappend
-        if data["isappend"] then
-            iterator = 1
+    -- Section: Generate empty frame or jump to next frame
+    function GenerateFrame(data, iterator)
+        local frames = sprite.frames
+        local didFrameExist = false
+
+        if data["isappend"] or frames[iterator] == nil then
+            -- Need new frame
+            sprite:newFrame(#frames)
+            app.activeFrame = #frames
         else
-            iterator = 2
+            -- Use existing frame
+            app.activeFrame = iterator
+            didFrameExist = true
         end
 
-        -- Generate parallax frames
-        if framestogenerate ~= 0 and data["doprx"] then
-            app.transaction(function()
-                for i = iterator, framestogenerate do
-                    GenerateFrame(data, i)
-                end
-            end)
-        elseif framestogenerate == 0 and data["doprx"] then
+        if data["doprx"] then
+            ProcessParallaxLayers(data, iterator, didFrameExist)
+        end
+        if data["doloop"] then
+            ProcessLoopingLayers(data, iterator)
+        end
+    end
+    -- End generate empty frame or jump to next frame
+
+    -- Section: MAIN
+    function Main(data)
+        local framestogenerate = data["frame-quantity"]
+        local startingFrame = 2 - (data["isappend"] and 1 or 0)
+
+        -- Frame number is invalid, throw alert and do nothing
+        if framestogenerate == 0 then
             app.alert {
                 title = "Error!",
                 text = "Frame generation quantity is set to 0."
             }
+            return
+            -- Both features are disabled, throw alert and do nothing
+        elseif not data["doprx"] and not data["doloop"] then
+            app.alert {
+                title = "Error!",
+                text = "No generation options selected."
+            }
+            return
+        else
         end
 
-        -- Generate looping frames
-        if data["doloop"] then
-            app.transaction(function()
-                for i = iterator, #(sprite.frames) do
-                    CopyLoop(data, i)
-                end
-            end)
-        end
+        -- Process frames one by one
+        -- Within each frame, do cels for all layers
+        app.transaction(function()
+            for i = startingFrame, framestogenerate do
+                GenerateFrame(data, i)
+            end
+        end)
     end
     -- End MAIN
 
@@ -342,7 +354,7 @@ function ParallaxGenerator()
         id = "generate",
         text = "Generate",
         onclick = function()
-            GenerateAll(dlg.data)
+            Main(dlg.data)
         end
     }:button{
         id = "close",
